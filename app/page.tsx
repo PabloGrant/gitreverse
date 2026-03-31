@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { UnoReverseLogo } from "@/components/uno-reverse-logo";
 
 const EXAMPLES = [
   "https://github.com/vercel/next.js",
@@ -60,9 +61,15 @@ export default function Home() {
     <div className="min-h-full bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <main className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-12 sm:px-6">
         <header className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            gitreverse
-          </h1>
+          <div className="flex items-center gap-4">
+            <UnoReverseLogo
+              className="h-[4.25rem] w-[4.25rem] shrink-0 drop-shadow sm:h-[5.25rem] sm:w-[5.25rem]"
+              title=""
+            />
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              gitreverse
+            </h1>
+          </div>
           <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             Paste a public GitHub repo link. We’ll turn it into one
             plain-language “vibe coding” prompt you could have used to build it.
@@ -105,7 +112,7 @@ export default function Home() {
           <button
             type="submit"
             disabled={loading}
-            className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className="rounded-lg bg-[#d31611] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#b0120e] disabled:opacity-50"
           >
             {loading ? "Working…" : "Reverse to prompt"}
           </button>
