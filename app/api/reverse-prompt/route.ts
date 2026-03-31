@@ -2,39 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { SYSTEM_PROMPT } from "@/lib/system-prompt";
 import { getFileTree, getReadme, getRepoMeta } from "@/lib/github-client";
 import { formatAsFilteredTree } from "@/lib/file-tree-formatter";
+import { parseGitHubRepoInput } from "@/lib/parse-github-repo";
 
 const README_MAX_CHARS = 8000;
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const inFlight = new Map<string, Promise<{ prompt: string } | NextResponse>>();
-
-export function parseGitHubRepoInput(raw: string): { owner: string; repo: string } | null {
-  const s = raw.trim();
-  if (!s) return null;
-
-  const withoutGit = (name: string) => name.replace(/\.git$/i, "");
-
-  try {
-    const url = s.includes("://") || s.startsWith("github.com")
-      ? new URL(s.startsWith("http") ? s : `https://${s}`)
-      : null;
-
-    if (url && url.hostname.replace(/^www\./, "") === "github.com") {
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (parts.length < 2) return null;
-      return { owner: parts[0], repo: withoutGit(parts[1]) };
-    }
-  } catch {
-    // fall through to owner/repo form
-  }
-
-  const parts = s.split("/").filter(Boolean);
-  if (parts.length === 2 && !s.includes(" ")) {
-    return { owner: parts[0], repo: withoutGit(parts[1]) };
-  }
-
-  return null;
-}
 
 function buildUserMessage(
   owner: string,
