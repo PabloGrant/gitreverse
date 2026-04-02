@@ -3,6 +3,7 @@ import { SYSTEM_PROMPT } from "@/lib/system-prompt";
 import { getFileTree, getReadme, getRepoMeta } from "@/lib/github-client";
 import { formatAsFilteredTree } from "@/lib/file-tree-formatter";
 import { parseGitHubRepoInput } from "@/lib/parse-github-repo";
+import { getSupabase } from "@/lib/supabase";
 
 const README_MAX_CHARS = 8000;
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -45,6 +46,11 @@ function buildUserMessage(
     "",
     readmeBody,
   ].join("\n");
+}
+
+function cacheTtlHours(): number {
+  const n = Number(process.env.CACHE_TTL_HOURS);
+  return Number.isFinite(n) && n > 0 ? n : 24;
 }
 
 function extractOpenRouterMessage(data: unknown): string | null {
@@ -116,6 +122,28 @@ export async function POST(request: NextRequest) {
     process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.5-pro";
 
   const promise = (async () => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const ttlHours = cacheTtlHours();
+        const { data, error } = await supabase
+          .from("prompt_cache")
+          .select("prompt, cached_at")
+          .eq("owner", owner)
+          .eq("repo", repo)
+          .maybeSingle();
+        if (!error && data?.prompt && data.cached_at) {
+          const ageHours =
+            (Date.now() - new Date(data.cached_at).getTime()) / 36e5;
+          if (ageHours < ttlHours) {
+            return { prompt: data.prompt as string };
+          }
+        }
+      } catch {
+        // cache miss — continue to GitHub + OpenRouter
+      }
+    }
+
     let meta: Awaited<ReturnType<typeof getRepoMeta>>;
     try {
       meta = await getRepoMeta(owner, repo);
@@ -216,6 +244,29 @@ export async function POST(request: NextRequest) {
         { error: "Model did not return a usable text response." },
         { status: 500 }
       );
+    }
+
+    const sb = getSupabase();
+    if (sb) {
+      void sb
+        .from("prompt_cache")
+        .upsert(
+          {
+            owner,
+            repo,
+            prompt,
+            cached_at: new Date().toISOString(),
+          },
+          { onConflict: "owner,repo" }
+        )
+        .then(({ error: upsertError }) => {
+          if (upsertError) {
+            console.error(
+              "[reverse-prompt] cache upsert:",
+              upsertError.message
+            );
+          }
+        });
     }
 
     return { prompt };
