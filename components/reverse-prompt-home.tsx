@@ -24,6 +24,7 @@ export function ReversePromptHome({
   const [repoUrl, setRepoUrl] = useState(initialRepoInput);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimited, setRateLimited] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState(false);
   const resultsRef = useRef<HTMLDivElement | null>(null);
@@ -31,6 +32,7 @@ export function ReversePromptHome({
 
   const runReversePrompt = useCallback(async (input: string) => {
     setError(null);
+    setRateLimited(false);
     setPrompt("");
     setCopied(false);
     setLoading(true);
@@ -42,6 +44,10 @@ export function ReversePromptHome({
       });
       const data = (await res.json()) as { prompt?: string; error?: string };
       if (!res.ok) {
+        if (res.status === 429) {
+          setRateLimited(true);
+          return;
+        }
         setError(data.error ?? `Request failed (${res.status})`);
         return;
       }
@@ -278,7 +284,23 @@ export function ReversePromptHome({
                 ))}
               </div>
 
-              {error ? (
+              {rateLimited ? (
+                <div className="mt-4 rounded-lg border-[3px] border-amber-400 bg-amber-50 p-4" role="alert">
+                  <p className="font-semibold text-amber-900">Sorry, we&apos;re a bit overwhelmed right now.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <p className="w-full text-sm text-amber-800">Come back in a couple of hours, or check out what others have already generated:</p>
+                    <Link
+                      href="/library"
+                      className="inline-flex items-center gap-1.5 rounded border-[2px] border-amber-600 bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-200"
+                    >
+                      Browse the library
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </Link>
+                  </div>
+                </div>
+              ) : error ? (
                 <p className="mt-3 text-sm text-red-600" role="alert">
                   {error}
                 </p>

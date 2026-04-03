@@ -222,6 +222,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (!res.ok) {
+      if (res.status === 429) {
+        return NextResponse.json(
+          { error: "rate_limited" },
+          { status: 429 }
+        );
+      }
+
       const errObj = data as { error?: { message?: string } };
       const msg =
         errObj?.error?.message ??
