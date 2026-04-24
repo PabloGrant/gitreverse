@@ -177,6 +177,74 @@ export async function readFile(
   return doFetch(branch, false);
 }
 
+const AI_INSTRUCTION_FILES = [
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".cursorrules",
+  "cursor.rules",
+  ".github/copilot-instructions.md",
+  "GEMINI.md",
+  ".clinerules",
+];
+
+export async function getAiInstructionFiles(
+  owner: string,
+  repo: string,
+  branch: string = "main"
+): Promise<Record<string, string>> {
+  const results: Record<string, string> = {};
+  await Promise.all(
+    AI_INSTRUCTION_FILES.map(async (file) => {
+      try {
+        const content = await readFile(owner, repo, file, branch);
+        if (content.trim()) results[file] = content;
+      } catch {
+        // file doesn't exist
+      }
+    })
+  );
+  return results;
+}
+
+export async function getPackageJsonFiles(
+  owner: string,
+  repo: string,
+  branch: string,
+  tree: Array<{ path: string; type: string }>
+): Promise<Record<string, string>> {
+  const results: Record<string, string> = {};
+  const paths = tree
+    .filter(
+      (item) =>
+        item.type === "blob" &&
+        item.path.endsWith("package.json") &&
+        !item.path.includes("node_modules/")
+    )
+    .map((item) => item.path);
+
+  const prioritized = [
+    ...paths.filter((p) => p === "package.json"),
+    ...paths.filter((p) => /^packages\/[^/]+\/package\.json$/.test(p)),
+    ...paths.filter(
+      (p) =>
+        p !== "package.json" &&
+        !/^packages\/[^/]+\/package\.json$/.test(p)
+    ),
+  ].slice(0, 10);
+
+  await Promise.all(
+    prioritized.map(async (path) => {
+      try {
+        const content = await readFile(owner, repo, path, branch);
+        results[path] = content;
+      } catch {
+        // skip
+      }
+    })
+  );
+  return results;
+}
+
 export async function getReadme(
   owner: string,
   repo: string,

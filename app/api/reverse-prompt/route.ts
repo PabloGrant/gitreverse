@@ -1,28 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SYSTEM_PROMPT } from "@/lib/system-prompt";
-import { getFileTree, getReadme, getRepoMeta } from "@/lib/github-client";
+import { getFileTree, getReadme, getRepoMeta, getAiInstructionFiles, getPackageJsonFiles } from "@/lib/github-client";
 import { formatAsFilteredTree } from "@/lib/file-tree-formatter";
 import { parseGitHubRepoInput } from "@/lib/parse-github-repo";
 import { getSupabase } from "@/lib/supabase";
 
-const README_MAX_CHARS = 8000;
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const POLLINATIONS_URL = "https://gen.pollinations.ai/v1/chat/completions";
 const GOOGLE_AI_STUDIO_URL =
   "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 type LlmTarget =
-  | { provider: "openrouter"; url: string; apiKey: string; model: string }
+  | { provider: "pollinations"; url: string; apiKey: string; model: string }
   | { provider: "google"; url: string; apiKey: string; model: string };
 
 function resolveLlmTarget(): LlmTarget | { error: string } {
-  const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (openRouterKey) {
+  const pollinationsKey = process.env.POLLINATIONS_API_KEY?.trim();
+  if (pollinationsKey) {
     return {
-      provider: "openrouter",
-      url: OPENROUTER_URL,
-      apiKey: openRouterKey,
-      model:
-        process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.5-pro",
+      provider: "pollinations",
+      url: POLLINATIONS_URL,
+      apiKey: pollinationsKey,
+      model: process.env.POLLINATIONS_MODEL?.trim() || "minimax",
     };
   }
   const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
@@ -37,7 +35,7 @@ function resolveLlmTarget(): LlmTarget | { error: string } {
   }
   return {
     error:
-      "No LLM API key configured. Set OPENROUTER_API_KEY (recommended) or GOOGLE_GENERATIVE_AI_API_KEY in .env.local.",
+      "No LLM API key configured. Set POLLINATIONS_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY in .env.local.",
   };
 }
 
@@ -47,19 +45,17 @@ function buildUserMessage(
   owner: string,
   repo: string,
   meta: Awaited<ReturnType<typeof getRepoMeta>>,
-  depth1Tree: string,
+  fileTree: string,
   readme: string,
-  truncatedTree: boolean
+  truncatedTree: boolean,
+  aiFiles: Record<string, string>,
+  packageJsons: Record<string, string>
 ): string {
   const topicsLine =
     meta.topics.length > 0 ? `\n**Topics:** ${meta.topics.join(", ")}` : "";
-  const readmeBody = readme
-    ? readme.length > README_MAX_CHARS
-      ? `${readme.slice(0, README_MAX_CHARS)}\n\n… (README truncated)`
-      : readme
-    : "*(No README or empty)*";
+  const readmeBody = readme || "*(No README or empty)*";
 
-  return [
+  const parts = [
     `# Repository: ${owner}/${repo}`,
     "",
     `**Description:** ${meta.description ?? "*(none)*"}`,
@@ -69,16 +65,30 @@ function buildUserMessage(
     topicsLine,
     truncatedTree ? "\n**Note:** Full repository tree was truncated by GitHub." : "",
     "",
-    "## Root file tree (depth 1)",
+    "## Root file tree (depth 3)",
     "",
     "```",
-    depth1Tree,
+    fileTree,
     "```",
-    "",
-    "## README",
-    "",
-    readmeBody,
-  ].join("\n");
+  ];
+
+  if (Object.keys(aiFiles).length > 0) {
+    parts.push("", "## AI Instruction Files");
+    for (const [filename, content] of Object.entries(aiFiles)) {
+      parts.push("", `### ${filename}`, "", content);
+    }
+  }
+
+  if (Object.keys(packageJsons).length > 0) {
+    parts.push("", "## package.json files");
+    for (const [filepath, content] of Object.entries(packageJsons)) {
+      parts.push("", `### ${filepath}`, "", "```json", content, "```");
+    }
+  }
+
+  parts.push("", "## README", "", readmeBody);
+
+  return parts.join("\n");
 }
 
 /** Maps to client 429 handling → “Browse the library” (same as GitHub/rate limits). */
@@ -211,10 +221,16 @@ export async function POST(request: NextRequest) {
 
     let tree: { tree: Array<{ path: string; type: string }>; truncated: boolean };
     let readme: string;
+    let aiFiles: Record<string, string>;
+    let packageJsons: Record<string, string>;
     try {
       [tree, readme] = await Promise.all([
         getFileTree(owner, repo, branch),
         getReadme(owner, repo, branch),
+      ]);
+      [aiFiles, packageJsons] = await Promise.all([
+        getAiInstructionFiles(owner, repo, branch),
+        getPackageJsonFiles(owner, repo, branch, tree.tree),
       ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -222,31 +238,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: message }, { status });
     }
 
-    const depth1Tree = formatAsFilteredTree(
-      tree.tree,
+    const SKIP_PREFIXES = [
+      "node_modules/", "dist/", ".next/", "build/", ".nuxt/",
+      "vendor/", ".yarn/", "out/", "coverage/", ".turbo/",
+    ];
+    const filteredTree = tree.tree.filter(
+      (item) => !SKIP_PREFIXES.some((p) => item.path.startsWith(p))
+    );
+
+    const fileTree = formatAsFilteredTree(
+      filteredTree,
       `${owner}/${repo}`,
       undefined,
-      1
+      3
     );
 
     const userContent = buildUserMessage(
       owner,
       repo,
       meta,
-      depth1Tree,
+      fileTree,
       readme,
-      tree.truncated
+      tree.truncated,
+      aiFiles,
+      packageJsons
     );
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${llm.apiKey}`,
       "Content-Type": "application/json",
     };
-    if (llm.provider === "openrouter") {
-      const referer = process.env.OPENROUTER_HTTP_REFERER?.trim();
+    if (llm.provider === "pollinations") {
+      const referer = process.env.POLLINATIONS_HTTP_REFERER?.trim();
       if (referer) headers["HTTP-Referer"] = referer;
-      const title = process.env.OPENROUTER_APP_TITLE?.trim();
-      if (title) headers["X-Title"] = title;
     }
 
     let res: Response;
@@ -264,8 +288,8 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {
       const label =
-        llm.provider === "openrouter"
-          ? "OpenRouter"
+        llm.provider === "pollinations"
+          ? "Pollinations"
           : "Google AI Studio";
       const message =
         e instanceof Error ? e.message : `${label} request failed`;
@@ -280,8 +304,8 @@ export async function POST(request: NextRequest) {
       data = await res.json();
     } catch {
       const label =
-        llm.provider === "openrouter"
-          ? "OpenRouter"
+        llm.provider === "pollinations"
+          ? "Pollinations"
           : "Google AI Studio";
       return NextResponse.json(
         { error: `${label} returned invalid JSON.` },
@@ -291,8 +315,8 @@ export async function POST(request: NextRequest) {
 
     if (!res.ok) {
       const label =
-        llm.provider === "openrouter"
-          ? "OpenRouter"
+        llm.provider === "pollinations"
+          ? "Pollinations"
           : "Google AI Studio";
       const msg =
         extractProviderErrorMessage(data) ??
@@ -317,7 +341,7 @@ export async function POST(request: NextRequest) {
         lower.includes("invalid api key");
       const authHint =
         llm.provider === "openrouter"
-          ? "OpenRouter authentication failed. Check OPENROUTER_API_KEY in .env.local."
+          ? "Pollinations authentication failed. Check POLLINATIONS_API_KEY in .env.local."
           : "Google AI Studio authentication failed. Check GOOGLE_GENERATIVE_AI_API_KEY in .env.local.";
       return NextResponse.json(
         {

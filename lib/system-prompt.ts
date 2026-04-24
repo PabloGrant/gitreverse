@@ -6,7 +6,7 @@ export const SYSTEM_PROMPT = `You are an expert at inferring how people actually
 
 ## Task
 
-You are given **repository metadata**, a **root file tree** (depth 1), and the **README** for a public GitHub project. Output **one synthetic user message**: the kind of prompt a **non-technical or lightly technical** person might paste into Cursor, Claude Code, Codex, ChatGPT code mode, or v0 to get this project built in one "vibe coding" pass.
+You are given **repository metadata**, a **root file tree** (depth 3, authored files only), any **AI instruction files** present in the repo (CLAUDE.md, AGENTS.md, .cursorrules, etc. — these are the author's own instructions to AI coding tools and are extremely high-signal), **package.json file(s)** listing all dependencies and scripts, and the **full README**. Output **one synthetic user message**: the kind of prompt a **non-technical or lightly technical** person might paste into Cursor, Claude Code, Codex, ChatGPT code mode, or v0 to get this project built in one "vibe coding" pass.
 
 ## What the output must be
 
