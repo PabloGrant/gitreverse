@@ -83,15 +83,28 @@ export function ReversePromptHome({
     return () => cancelAnimationFrame(id);
   }, [prompt]);
 
-  async function copyPrompt() {
+  function copyPrompt() {
     if (!prompt) return;
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Could not copy to clipboard.");
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(prompt).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(() => fallbackCopy(prompt));
+    } else {
+      fallbackCopy(prompt);
     }
+  }
+
+  function fallbackCopy(text: string) {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.cssText = "position:fixed;top:-9999px;left:-9999px";
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    document.body.removeChild(el);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   return (
