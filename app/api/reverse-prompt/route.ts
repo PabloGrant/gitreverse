@@ -340,7 +340,7 @@ export async function POST(request: NextRequest) {
         lower.includes("unauthorized") ||
         lower.includes("invalid api key");
       const authHint =
-        llm.provider === "openrouter"
+        llm.provider === "pollinations"
           ? "Pollinations authentication failed. Check POLLINATIONS_API_KEY in .env.local."
           : "Google AI Studio authentication failed. Check GOOGLE_GENERATIVE_AI_API_KEY in .env.local.";
       return NextResponse.json(
